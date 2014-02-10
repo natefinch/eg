@@ -11,6 +11,23 @@ eg solves several common problems with Go's native error handling:
 
 
 
+## func Cause
+``` go
+func Cause(err error) (cause error, ok bool)
+```
+Cause returns the cause of the error.  If the error has a cause, ok will be
+true, and cause will contain the cause.  Otherwise the err will be returned
+as the cause.
+
+
+## func Details
+``` go
+func Details(err error) string
+```
+Details returns detailed information about the error, or the error's Error()
+string if no detailed information is available.
+
+
 ## func Note
 ``` go
 func Note(err error, msg string, args ...interface{}) error
@@ -47,13 +64,50 @@ messages with associated locations in source code.
 
 
 
+## type Detailed
+``` go
+type Detailed interface {
+    Details() string
+}
+```
+Detailed is an interface that represents an erro that can returned detailed
+information.
+
+
+
+
+
+
+
+
+
+
+
+## type Effect
+``` go
+type Effect interface {
+    Cause() error
+}
+```
+Effect is an interface that represents an error that can have a cause.
+
+
+
+
+
+
+
+
+
+
+
 ## type Err
 ``` go
 type Err struct {
     // contains filtered or unexported fields
 }
 ```
-Err is an error that fulfills the Error interface.
+Err is an an error that implements Annotatable, Effect, and Detailed.
 
 
 
