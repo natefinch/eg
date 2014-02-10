@@ -3,7 +3,6 @@ package eg_test
 import (
 	"errors"
 	"fmt"
-	"testing"
 
 	"github.com/natefinch/eg"
 )

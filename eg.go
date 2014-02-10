@@ -10,41 +10,18 @@ import (
 	"strings"
 )
 
-type Location struct {
-	File     string
-	Line     int
-	Function string
-}
-
-func (l Location) String() string {
-	return fmt.Sprintf("[%s@%s:%d]", l.Function, l.File, l.Line)
-}
-
-type Annotation struct {
-	Message string
-	Location
-}
-
-func (a Annotation) String() string {
-	return a.Message
-}
-
-func (a Annotation) Details() string {
-	return fmt.Sprintf("%s %s", a.Location, a.Message)
-}
-
 // Annotatable is an interface that represents an error that can aggregate
-// annotations.
+// messages with associated locations in source code.
 type Annotatable interface {
-	Annotate(ann Annotation)
+	Annotate(msg, function, file string, line int)
 }
 
 // Err is an error that fulfills the Error interface.
 type Err struct {
 	message     string
-	location    Location
+	location    location
 	cause       error
-	annotations []Annotation
+	annotations []annotation
 }
 
 var _ error = (*Err)(nil)
@@ -83,8 +60,12 @@ func (e *Err) Cause() error {
 }
 
 // Annotate adds the message to the list of annotations on the error.
-func (e *Err) Annotate(ann Annotation) {
-	e.annotations = append(e.annotations, ann)
+func (e *Err) Annotate(msg, function, file string, line int) {
+	e.annotations = append(e.annotations,
+		annotation{
+			Message:  msg,
+			location: location{function, file, line},
+		})
 }
 
 // Details returns a detailed list of annotations including files and line
@@ -129,11 +110,11 @@ func Note(err error, msg string, args ...interface{}) error {
 
 func note(err error, depth int, msg string, args ...interface{}) error {
 	if a, ok := err.(Annotatable); ok {
-		loc := locate(depth + 1)
+		l := locate(depth + 1)
 		if len(args) == 0 {
-			a.Annotate(Annotation{msg, loc})
+			a.Annotate(msg, l.Function, l.File, l.Line)
 		} else {
-			a.Annotate(Annotation{fmt.Sprintf(msg, args), loc})
+			a.Annotate(fmt.Sprintf(msg, args), l.Function, l.File, l.Line)
 		}
 		return err
 	}
@@ -152,8 +133,35 @@ func Pass(err error, msg string, iff ...func(error) bool) error {
 	return wrap(err, 1, msg)
 }
 
-func locate(depth int) Location {
+// location is a line in source control
+type location struct {
+	Function string
+	File     string
+	Line     int
+}
+
+func (l location) String() string {
+	return fmt.Sprintf("[%s@%s:%d]", l.Function, l.File, l.Line)
+}
+
+// locate returns info about thje line of sourcecode depth levels above the
+// caller of locate.
+func locate(depth int) location {
 	pc, file, line, _ := runtime.Caller(depth + 1)
 	function := runtime.FuncForPC(pc).Name()
-	return Location{File: file, Line: line, Function: function}
+	return location{function, file, line}
+}
+
+// annotation is a message associated with a location.
+type annotation struct {
+	Message string
+	location
+}
+
+func (a annotation) String() string {
+	return a.Message
+}
+
+func (a annotation) Details() string {
+	return fmt.Sprintf("%s %s", a.location, a.Message)
 }

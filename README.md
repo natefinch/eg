@@ -31,11 +31,11 @@ errors which do not match will be wrapped instead.
 ## type Annotatable
 ``` go
 type Annotatable interface {
-    Annotate(ann Annotation)
+    Annotate(msg, function, file string, line int)
 }
 ```
 Annotatable is an interface that represents an error that can aggregate
-annotations.
+messages with associated locations in source code.
 
 
 
@@ -45,35 +45,6 @@ annotations.
 
 
 
-
-
-## type Annotation
-``` go
-type Annotation struct {
-    Message string
-    Location
-}
-```
-
-
-
-
-
-
-
-
-
-
-### func (Annotation) Details
-``` go
-func (a Annotation) Details() string
-```
-
-
-### func (Annotation) String
-``` go
-func (a Annotation) String() string
-```
 
 
 ## type Err
@@ -112,7 +83,7 @@ Stacktraceable, it will copy the stacktrace from err.
 
 ### func (\*Err) Annotate
 ``` go
-func (e *Err) Annotate(ann Annotation)
+func (e *Err) Annotate(msg, function, file string, line int)
 ```
 Annotate adds the message to the list of annotations on the error.
 
@@ -141,30 +112,6 @@ func (e *Err) Error() string
 ```
 Error implements the error interface.
 
-
-
-## type Location
-``` go
-type Location struct {
-    File     string
-    Line     int
-    Function string
-}
-```
-
-
-
-
-
-
-
-
-
-
-### func (Location) String
-``` go
-func (l Location) String() string
-```
 
 
 
