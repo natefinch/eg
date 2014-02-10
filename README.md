@@ -2,9 +2,69 @@
 # eg
     import "github.com/natefinch/eg"
 
-package eg implements improved error handling mechanisms.
+Package eg implements improved error handling mechanisms.
 
-eg solves several common problems with Go's native error handling:
+This package solves several common problems with Go's native error handling:
+
+Tracebacks with context to help understand where an error came from.
+
+The ability to wrap an erro with a new error without losing the context of
+the original error.
+
+A way to print out more detailed information about an error.
+
+Examples:
+
+
+	 type NotFoundError {
+			*eg.Err
+		}
+	
+		func IsNotFound(err error) bool {
+			_, ok := err.(NotFoundError)
+			return ok
+		}
+	
+		func GetConfig() []byte, error {
+			data, err := ioutil.ReadFile("config_file")
+			if os.IsNotExists(err) {
+				// return a new error with the original error as the cause
+				return nil, NotFoundError{eg.Wrap(err, "Couldn't find config file")}
+			}
+			if err != nil {
+				// return a generic error for other problems
+				return eg.Wrap(err, "Error reading config file")
+			}
+			return data, nil
+		}
+	
+		func StartFoo() error {
+			data, err := GetConfig()
+			if err != nil {
+				// only let the IsNotFound error percolate up, so we don't let callers
+				// depend on implementation-specific errors.
+				return eg.Pass(err, "Can't start foo", IsNotFound)
+			}
+			// <start foo>
+			return nil
+		}
+	
+		func Bootstrap() error {
+			err := StartFoo()
+			if err != nil {
+				// add context to the error
+				return eg.Note(err, "Can't bootstrap")
+			}
+			// <bootstrap stuff>
+			return nil
+		}
+	
+		func main() {
+			fmt.Printf("%v", Bootstrap())
+		}
+	
+		// Output:
+		// Can't bootstrap: Can't start foo: Couldn't find config file: open config_file: file or directory not found
 
 
 
@@ -40,8 +100,8 @@ wraps the error in an Err using msg as the error's message.
 ``` go
 func Pass(err error, msg string, iff ...func(error) bool) error
 ```
-Pass will annotate any errors that match the conditions in iff, and any
-errors which do not match will be wrapped instead.
+Pass will Note any errors that match the conditions in iff, and Mask any
+errors which do not match.
 
 
 
@@ -70,7 +130,7 @@ type Detailed interface {
     Details() string
 }
 ```
-Detailed is an interface that represents an erro that can returned detailed
+Detailed is an interface that represents an error that can returned detailed
 information.
 
 
@@ -117,20 +177,27 @@ Err is an an error that implements Annotatable, Effect, and Detailed.
 
 
 
+### func Mask
+``` go
+func Mask(err error, msg string, args ...interface{}) *Err
+```
+Mask returns a new Err object with a message based on the given error's
+message but without listing the error as the Cause.
+
+
 ### func New
 ``` go
 func New(msg string, args ...interface{}) *Err
 ```
-New returns a new Err object.
+New returns a new Err object with the given message.
 
 
 ### func Wrap
 ``` go
 func Wrap(err error, msg string, args ...interface{}) *Err
 ```
-Wrap wraps the given error in an Err object and sets the message on the Err
-to msg formatted by args (or unformatted if no args).  If err is
-Stacktraceable, it will copy the stacktrace from err.
+Wrap wraps the given error in an Err object, in effect obscuring the original
+error.
 
 
 
@@ -139,7 +206,9 @@ Stacktraceable, it will copy the stacktrace from err.
 ``` go
 func (e *Err) Annotate(msg, function, file string, line int)
 ```
-Annotate adds the message to the list of annotations on the error.
+Annotate adds the message to the list of annotations on the error.  If msg is
+empty, the annotation will only be displayed when printing the error's
+details.
 
 
 

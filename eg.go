@@ -1,7 +1,64 @@
-// package eg implements improved error handling mechanisms.
+// Package eg implements improved error handling mechanisms.
 //
-// eg solves several common problems with Go's native error handling:
+// This package solves several common problems with Go's native error handling:
 //
+// Tracebacks with context to help understand where an error came from.
+//
+// The ability to wrap an erro with a new error without losing the context of
+// the original error.
+//
+// A way to print out more detailed information about an error.
+//
+// Examples:
+//  type NotFoundError {
+//		*eg.Err
+//	}
+//
+//	func IsNotFound(err error) bool {
+//		_, ok := err.(NotFoundError)
+//		return ok
+//	}
+//
+//	func GetConfig() []byte, error {
+//		data, err := ioutil.ReadFile("config_file")
+//		if os.IsNotExists(err) {
+//			// return a new error with the original error as the cause
+//			return nil, NotFoundError{eg.Wrap(err, "Couldn't find config file")}
+//		}
+//		if err != nil {
+//			// return a generic error for other problems
+//			return eg.Wrap(err, "Error reading config file")
+//		}
+//		return data, nil
+//	}
+//
+//	func StartFoo() error {
+//		data, err := GetConfig()
+//		if err != nil {
+//			// only let the IsNotFound error percolate up, so we don't let callers
+//			// depend on implementation-specific errors.
+//			return eg.Pass(err, "Can't start foo", IsNotFound)
+//		}
+//		// <start foo>
+//		return nil
+//	}
+//
+//	func Bootstrap() error {
+//		err := StartFoo()
+// 		if err != nil {
+//			// add context to the error
+//			return eg.Note(err, "Can't bootstrap")
+//		}
+//		// <bootstrap stuff>
+//		return nil
+//	}
+//
+//	func main() {
+//		fmt.Printf("%v", Bootstrap())
+//	}
+//
+//	// Output:
+// 	// Can't bootstrap: Can't start foo: Couldn't find config file: open config_file: file or directory not found
 package eg
 
 import (
@@ -21,7 +78,7 @@ type Effect interface {
 	Cause() error
 }
 
-// Detailed is an interface that represents an erro that can returned detailed
+// Detailed is an interface that represents an error that can returned detailed
 // information.
 type Detailed interface {
 	Details() string
@@ -37,15 +94,34 @@ type Err struct {
 
 var _ error = (*Err)(nil)
 
-// New returns a new Err object.
+// Mask returns a new Err object with a message based on the given error's
+// message but without listing the error as the Cause.
+func Mask(err error, msg string, args ...interface{}) *Err {
+	return mask(err, 1, msg, args...)
+}
+
+func mask(err error, depth int, msg string, args ...interface{}) *Err {
+	ret := newErr(depth+1, msg, args...)
+	if err != nil {
+		ret.message = ret.message + ": " + err.Error()
+	}
+	return ret
+}
+
+// New returns a new Err object with the given message.
 func New(msg string, args ...interface{}) *Err {
+	return newErr(1, msg, args...)
+}
+
+func newErr(depth int, msg string, args ...interface{}) *Err {
 	if len(args) > 0 {
 		msg = fmt.Sprintf(msg, args...)
 	}
 	return &Err{
 		message:  msg,
-		location: locate(1),
+		location: locate(depth + 1),
 	}
+
 }
 
 // Error implements the error interface.
@@ -54,7 +130,10 @@ func (e *Err) Error() string {
 
 	// LIFO the annotations
 	for x := len(e.annotations) - 1; x >= 0; x-- {
-		msgs = append(msgs, e.annotations[x].String())
+		msg := e.annotations[x].String()
+		if msg != "" {
+			msgs = append(msgs, e.annotations[x].String())
+		}
 	}
 
 	msgs = append(msgs, e.message)
@@ -70,7 +149,9 @@ func (e *Err) Cause() error {
 	return e.cause
 }
 
-// Annotate adds the message to the list of annotations on the error.
+// Annotate adds the message to the list of annotations on the error.  If msg is
+// empty, the annotation will only be displayed when printing the error's
+// details.
 func (e *Err) Annotate(msg, function, file string, line int) {
 	e.annotations = append(e.annotations,
 		annotation{
@@ -92,15 +173,13 @@ func (e *Err) Details() string {
 	msgs = append(msgs, fmt.Sprintf("%s %s", e.location, e.message))
 
 	if e.cause != nil {
-		msgs = append(msgs, e.cause.Error())
+		msgs = append(msgs, Details(e.cause))
 	}
 	return strings.Join(msgs, "\n")
-
 }
 
-// Wrap wraps the given error in an Err object and sets the message on the Err
-// to msg formatted by args (or unformatted if no args).  If err is
-// Stacktraceable, it will copy the stacktrace from err.
+// Wrap wraps the given error in an Err object, in effect obscuring the original
+// error.
 func Wrap(err error, msg string, args ...interface{}) *Err {
 	return wrap(err, 1, msg, args...)
 }
@@ -133,15 +212,15 @@ func note(err error, depth int, msg string, args ...interface{}) error {
 	return wrap(err, depth+1, msg, args...)
 }
 
-// Pass will annotate any errors that match the conditions in iff, and any
-// errors which do not match will be wrapped instead.
+// Pass will Note any errors that match the conditions in iff, and Mask any
+// errors which do not match.
 func Pass(err error, msg string, iff ...func(error) bool) error {
 	for _, shouldPass := range iff {
 		if shouldPass(err) {
 			return note(err, 1, msg)
 		}
 	}
-	return wrap(err, 1, msg)
+	return mask(err, 1, msg)
 }
 
 // Cause returns the cause of the error.  If the error has a cause, ok will be
@@ -161,6 +240,9 @@ func Cause(err error) (cause error, ok bool) {
 // Details returns detailed information about the error, or the error's Error()
 // string if no detailed information is available.
 func Details(err error) string {
+	if err == nil {
+		return ""
+	}
 	if e, ok := err.(Detailed); ok {
 		return e.Details()
 	}
