@@ -8,63 +8,65 @@ This package solves several common problems with Go's native error handling:
 
 Tracebacks with context to help understand where an error came from.
 
-The ability to wrap an erro with a new error without losing the context of
+The ability to wrap an error with a new error without losing the context of
 the original error.
 
 A way to print out more detailed information about an error.
 
+A way to mask some or all of the errors coming out of a function with
+anonymous errors to prevent deeep coupling.
+
 Examples:
 
 
-	 type NotFoundError {
-			*eg.Err
-		}
+	type NotFoundError {
+		*eg.Err
+	}
 	
-		func IsNotFound(err error) bool {
-			_, ok := err.(NotFoundError)
-			return ok
-		}
+	func IsNotFound(err error) bool {
+		_, ok := err.(NotFoundError)
+		return ok
+	}
 	
-		func GetConfig() []byte, error {
-			data, err := ioutil.ReadFile("config_file")
-			if os.IsNotExists(err) {
-				// return a new error with the original error as the cause
-				return nil, NotFoundError{eg.Wrap(err, "Couldn't find config file")}
-			}
-			if err != nil {
-				// return a generic error for other problems
-				return eg.Wrap(err, "Error reading config file")
-			}
-			return data, nil
+	func GetConfig() []byte, error {
+		data, err := ioutil.ReadFile("config_file")
+		if os.IsNotExists(err) {
+			// Return a new error with the original error as the cause.
+			return nil, NotFoundError{eg.Wrap(err, "Couldn't find config file")}
 		}
-	
-		func StartFoo() error {
-			data, err := GetConfig()
-			if err != nil {
-				// only let the IsNotFound error percolate up, so we don't let callers
-				// depend on implementation-specific errors.
-				return eg.Pass(err, "Can't start foo", IsNotFound)
-			}
-			// <start foo>
-			return nil
+		if err != nil {
+			// Return a generic error for other problems.
+			return eg.Wrap(err, "Error reading config file")
 		}
+		return data, nil
+	}
 	
-		func Bootstrap() error {
-			err := StartFoo()
-			if err != nil {
-				// add context to the error
-				return eg.Note(err, "Can't bootstrap")
-			}
-			// <bootstrap stuff>
-			return nil
+	func StartFoo() error {
+		data, err := GetConfig()
+		if err != nil {
+			// Only let the IsNotFound error percolate up, so we don't let
+			// callers depend on implementation-specific errors.
+			return eg.Pass(err, "Can't start foo", IsNotFound)
 		}
+		return nil
+	}
 	
-		func main() {
-			fmt.Printf("%v", Bootstrap())
+	func Bootstrap() error {
+		err := StartFoo()
+		if err != nil {
+			// Add context to the error.
+			return eg.Note(err, "Can't bootstrap")
 		}
+		return nil
+	}
 	
-		// Output:
-		// Can't bootstrap: Can't start foo: Couldn't find config file: open config_file: file or directory not found
+	func main() {
+		err := Bootstrap()
+		fmt.Printf("%v", err)
+	}
+	
+	// Output:
+	// Can't bootstrap: Can't start foo: Couldn't find config file: open config_file: file or directory not found
 
 
 
