@@ -2,7 +2,9 @@
 # eg
     import "github.com/natefinch/eg"
 
-package eg implements improved error handling.
+package eg implements improved error handling mechanisms.
+
+eg solves several common problems with Go's native error handling:
 
 
 
@@ -25,22 +27,15 @@ Pass will annotate any errors that match the conditions in iff, and any
 errors which do not match will be wrapped instead.
 
 
-## func StackTrace
-``` go
-func StackTrace(err error) string
-```
-StackTrace returns the stacktrace for the error, or an empty string if the
-error is not Stacktraceable.
-
-
 
 ## type Annotatable
 ``` go
 type Annotatable interface {
-    Annotate(msg string)
+    Annotate(ann Annotation)
 }
 ```
-Annotatable represent an error that can aggregate annotations.
+Annotatable is an interface that represents an error that can aggregate
+annotations.
 
 
 
@@ -50,6 +45,35 @@ Annotatable represent an error that can aggregate annotations.
 
 
 
+
+
+## type Annotation
+``` go
+type Annotation struct {
+    Message string
+    Location
+}
+```
+
+
+
+
+
+
+
+
+
+
+### func (Annotation) Details
+``` go
+func (a Annotation) Details() string
+```
+
+
+### func (Annotation) String
+``` go
+func (a Annotation) String() string
+```
 
 
 ## type Err
@@ -86,11 +110,28 @@ Stacktraceable, it will copy the stacktrace from err.
 
 
 
+### func (\*Err) Annotate
+``` go
+func (e *Err) Annotate(ann Annotation)
+```
+Annotate adds the message to the list of annotations on the error.
+
+
+
 ### func (\*Err) Cause
 ``` go
 func (e *Err) Cause() error
 ```
 Cause returns the error object that caused this error.
+
+
+
+### func (\*Err) Details
+``` go
+func (e *Err) Details() string
+```
+Details returns a detailed list of annotations including files and line
+numbers.
 
 
 
@@ -102,26 +143,14 @@ Error implements the error interface.
 
 
 
-### func (\*Err) StackTrace
+## type Location
 ``` go
-func (e *Err) StackTrace() string
-```
-StackTrace returns a stack trace at the point where the error was wrapped.
-
-
-
-## type Error
-``` go
-type Error interface {
-    Cause() Error
-    StackTrace() string
-    Annotate(msg string)
-    Message() string
-    error
+type Location struct {
+    File     string
+    Line     int
+    Function string
 }
 ```
-Error is an interface that describes an error which can have a Cause,
-a StackTrace, and Annotations.
 
 
 
@@ -132,23 +161,10 @@ a StackTrace, and Annotations.
 
 
 
-
-## type StackTraceable
+### func (Location) String
 ``` go
-type StackTraceable interface {
-    StackTrace() string
-}
+func (l Location) String() string
 ```
-StackTraceable represents an error that can return a stack trace.
-
-
-
-
-
-
-
-
-
 
 
 

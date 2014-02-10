@@ -1,4 +1,7 @@
-// package eg implements improved error handling.
+// package eg implements improved error handling mechanisms.
+//
+// eg solves several common problems with Go's native error handling:
+//
 package eg
 
 import (
@@ -7,32 +10,41 @@ import (
 	"strings"
 )
 
+type Location struct {
+	File     string
+	Line     int
+	Function string
+}
+
+func (l Location) String() string {
+	return fmt.Sprintf("[%s@%s:%d]", l.Function, l.File, l.Line)
+}
+
+type Annotation struct {
+	Message string
+	Location
+}
+
+func (a Annotation) String() string {
+	return a.Message
+}
+
+func (a Annotation) Details() string {
+	return fmt.Sprintf("%s %s", a.Location, a.Message)
+}
+
+// Annotatable is an interface that represents an error that can aggregate
+// annotations.
+type Annotatable interface {
+	Annotate(ann Annotation)
+}
+
 // Err is an error that fulfills the Error interface.
 type Err struct {
 	message     string
+	location    Location
 	cause       error
-	stack       string
-	annotations []string
-}
-
-// Error is an interface that describes an error which can have a Cause,
-// a StackTrace, and Annotations.
-type Error interface {
-	Cause() Error
-	StackTrace() string
-	Annotate(msg string)
-	Message() string
-	error
-}
-
-// Annotatable represent an error that can aggregate annotations.
-type Annotatable interface {
-	Annotate(msg string)
-}
-
-// StackTraceable represents an error that can return a stack trace.
-type StackTraceable interface {
-	StackTrace() string
+	annotations []Annotation
 }
 
 var _ error = (*Err)(nil)
@@ -43,8 +55,8 @@ func New(msg string, args ...interface{}) *Err {
 		msg = fmt.Sprintf(msg, args...)
 	}
 	return &Err{
-		message: msg,
-		stack:   stacktrace(),
+		message:  msg,
+		location: locate(1),
 	}
 }
 
@@ -54,11 +66,11 @@ func (e *Err) Error() string {
 
 	// LIFO the annotations
 	for x := len(e.annotations) - 1; x >= 0; x-- {
-		msgs = append(msgs, e.annotations[x])
+		msgs = append(msgs, e.annotations[x].String())
 	}
-	if e.message != "" {
-		msgs = append(msgs, e.message)
-	}
+
+	msgs = append(msgs, e.message)
+
 	if e.cause != nil {
 		msgs = append(msgs, e.cause.Error())
 	}
@@ -70,44 +82,63 @@ func (e *Err) Cause() error {
 	return e.cause
 }
 
-// StackTrace returns a stack trace at the point where the error was wrapped.
-func (e *Err) StackTrace() string {
-	return e.stack
+// Annotate adds the message to the list of annotations on the error.
+func (e *Err) Annotate(ann Annotation) {
+	e.annotations = append(e.annotations, ann)
+}
+
+// Details returns a detailed list of annotations including files and line
+// numbers.
+func (e *Err) Details() string {
+	msgs := []string{}
+
+	// LIFO the annotations
+	for x := len(e.annotations) - 1; x >= 0; x-- {
+		msgs = append(msgs, e.annotations[x].Details())
+	}
+
+	msgs = append(msgs, fmt.Sprintf("%s %s", e.location, e.message))
+
+	if e.cause != nil {
+		msgs = append(msgs, e.cause.Error())
+	}
+	return strings.Join(msgs, "\n")
+
 }
 
 // Wrap wraps the given error in an Err object and sets the message on the Err
 // to msg formatted by args (or unformatted if no args).  If err is
 // Stacktraceable, it will copy the stacktrace from err.
 func Wrap(err error, msg string, args ...interface{}) *Err {
-	stack := ""
+	return wrap(err, 1, msg, args...)
+}
 
-	// don't double up stack traces on already-wrapped errors
-	if e, ok := err.(StackTraceable); ok {
-		stack = e.StackTrace()
-	} else {
-		stack = stacktrace()
-	}
-
+func wrap(err error, depth int, msg string, args ...interface{}) *Err {
 	if len(args) > 0 {
 		msg = fmt.Sprintf(msg, args...)
 	}
 
-	return &Err{message: msg, stack: stack, cause: err}
+	return &Err{message: msg, cause: err, location: locate(depth + 1)}
 }
 
 // Note annotates the error if it is already an Annotable error, otherwise it
 // wraps the error in an Err using msg as the error's message.
 func Note(err error, msg string, args ...interface{}) error {
+	return note(err, 1, msg, args...)
+}
+
+func note(err error, depth int, msg string, args ...interface{}) error {
 	if a, ok := err.(Annotatable); ok {
+		loc := locate(depth + 1)
 		if len(args) == 0 {
-			a.Annotate(msg)
+			a.Annotate(Annotation{msg, loc})
 		} else {
-			a.Annotate(fmt.Sprintf(msg, args))
+			a.Annotate(Annotation{fmt.Sprintf(msg, args), loc})
 		}
 		return err
 	}
 
-	return Wrap(err, msg, args...)
+	return wrap(err, depth+1, msg, args...)
 }
 
 // Pass will annotate any errors that match the conditions in iff, and any
@@ -115,28 +146,14 @@ func Note(err error, msg string, args ...interface{}) error {
 func Pass(err error, msg string, iff ...func(error) bool) error {
 	for _, shouldPass := range iff {
 		if shouldPass(err) {
-			return Note(err, msg)
+			return note(err, 1, msg)
 		}
 	}
-	return Wrap(err, msg)
+	return wrap(err, 1, msg)
 }
 
-// StackTrace returns the stacktrace for the error, or an empty string if the
-// error is not Stacktraceable.
-func StackTrace(err error) string {
-	if e, ok := err.(StackTraceable); ok {
-		return e.StackTrace()
-	}
-	return ""
-}
-
-// stacktrace returns a stacktrace for the current goroutine
-func stacktrace() string {
-	buf := make([]byte, 1024)
-	n := runtime.Stack(buf, false)
-	for n == len(buf) {
-		buf = make([]byte, n+1024)
-		n = runtime.Stack(buf, false)
-	}
-	return string(buf)
+func locate(depth int) Location {
+	pc, file, line, _ := runtime.Caller(depth + 1)
+	function := runtime.FuncForPC(pc).Name()
+	return Location{File: file, Line: line, Function: function}
 }
