@@ -16,7 +16,18 @@ type Annotatable interface {
 	Annotate(msg, function, file string, line int)
 }
 
-// Err is an error that fulfills the Error interface.
+// Effect is an interface that represents an error that can have a cause.
+type Effect interface {
+	Cause() error
+}
+
+// Detailed is an interface that represents an erro that can returned detailed
+// information.
+type Detailed interface {
+	Details() string
+}
+
+// Err is an an error that implements Annotatable, Effect, and Detailed.
 type Err struct {
 	message     string
 	location    location
@@ -131,6 +142,29 @@ func Pass(err error, msg string, iff ...func(error) bool) error {
 		}
 	}
 	return wrap(err, 1, msg)
+}
+
+// Cause returns the cause of the error.  If the error has a cause, ok will be
+// true, and cause will contain the cause.  Otherwise the err will be returned
+// as the cause.
+func Cause(err error) (cause error, ok bool) {
+	if err == nil {
+		return nil, false
+	}
+	e, ok := err.(Effect)
+	if !ok {
+		return err, false
+	}
+	return e.Cause(), true
+}
+
+// Details returns detailed information about the error, or the error's Error()
+// string if no detailed information is available.
+func Details(err error) string {
+	if e, ok := err.(Detailed); ok {
+		return e.Details()
+	}
+	return err.Error()
 }
 
 // location is a line in source control
