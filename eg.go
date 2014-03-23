@@ -13,8 +13,12 @@
 // anonymous errors to prevent deeep coupling.
 //
 // Examples:
-//	type NotFoundError {
+//	type NotFoundError struct {
 //		*eg.Err
+//	}
+//
+//	func (n NotFoundError) Clone() error {
+//		return NotFoundError{&(*n.Err)}
 //	}
 //
 //	func IsNotFound(err error) bool {
@@ -72,7 +76,7 @@ import (
 // Annotatable is an interface that represents an error that can aggregate
 // messages with associated locations in source code.
 type Annotatable interface {
-	Annotate(msg, function, file string, line int)
+	Annotate(msg, function, file string, line int) error
 }
 
 // Effect is an interface that represents an error that can have a cause.
@@ -88,30 +92,37 @@ type Detailed interface {
 
 // Err is an an error that implements Annotatable, Effect, and Detailed.
 type Err struct {
-	message     string
-	location    location
-	cause       error
-	annotations []annotation
+	Message     string
+	Location    location
+	Cause       error
+	Annotations []annotation
 }
 
 var _ error = (*Err)(nil)
 
 // Mask returns a new Err object with a message based on the given error's
 // message but without listing the error as the Cause.
-func Mask(err error, msg string, args ...interface{}) *Err {
+func Mask(err error, msg string, args ...interface{}) error {
+	if err == nil {
+		return nil
+	}
 	return mask(err, 1, msg, args...)
 }
 
 func mask(err error, depth int, msg string, args ...interface{}) *Err {
 	ret := newErr(depth+1, msg, args...)
 	if err != nil {
-		ret.message = ret.message + ": " + err.Error()
+		if ret.message != "" {
+			ret.message = ret.message + ": " + err.Error()
+		} else {
+			ret.message = err.Error()
+		}
 	}
 	return ret
 }
 
-// New returns a new Err object with the given message.
-func New(msg string, args ...interface{}) *Err {
+// Error returns a new Err object with the given message.
+func Error(msg string, args ...interface{}) *Err {
 	return newErr(1, msg, args...)
 }
 
@@ -155,7 +166,7 @@ func (e *Err) Cause() error {
 // empty, the annotation will only be displayed when printing the error's
 // details.
 func (e *Err) Annotate(msg, function, file string, line int) {
-	e.annotations = append(e.annotations,
+	e.annotations = append(e2.annotations,
 		annotation{
 			Message:  msg,
 			location: location{function, file, line},
@@ -182,7 +193,10 @@ func (e *Err) Details() string {
 
 // Wrap wraps the given error in an Err object, in effect obscuring the original
 // error.
-func Wrap(err error, msg string, args ...interface{}) *Err {
+func Wrap(err error, msg string, args ...interface{}) error {
+	if err == nil {
+		return nil
+	}
 	return wrap(err, 1, msg, args...)
 }
 
@@ -197,18 +211,21 @@ func wrap(err error, depth int, msg string, args ...interface{}) *Err {
 // Note annotates the error if it is already an Annotable error, otherwise it
 // wraps the error in an Err using msg as the error's message.
 func Note(err error, msg string, args ...interface{}) error {
+	if err == nil {
+		return nil
+	}
 	return note(err, 1, msg, args...)
 }
 
 func note(err error, depth int, msg string, args ...interface{}) error {
 	if a, ok := err.(Annotatable); ok {
+
 		l := locate(depth + 1)
 		if len(args) == 0 {
-			a.Annotate(msg, l.Function, l.File, l.Line)
+			return a.Annotate(msg, l.Function, l.File, l.Line)
 		} else {
-			a.Annotate(fmt.Sprintf(msg, args), l.Function, l.File, l.Line)
+			return a.Annotate(fmt.Sprintf(msg, args), l.Function, l.File, l.Line)
 		}
-		return err
 	}
 
 	return wrap(err, depth+1, msg, args...)
@@ -217,6 +234,9 @@ func note(err error, depth int, msg string, args ...interface{}) error {
 // Pass will Note any errors that match the conditions in iff, and Mask any
 // errors which do not match.
 func Pass(err error, msg string, iff ...func(error) bool) error {
+	if err == nil {
+		return nil
+	}
 	for _, shouldPass := range iff {
 		if shouldPass(err) {
 			return note(err, 1, msg)
