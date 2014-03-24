@@ -17,10 +17,6 @@
 //		*eg.Err
 //	}
 //
-//	func (n NotFoundError) Clone() error {
-//		return NotFoundError{&(*n.Err)}
-//	}
-//
 //	func IsNotFound(err error) bool {
 //		_, ok := err.(NotFoundError)
 //		return ok
@@ -30,11 +26,11 @@
 //		data, err := ioutil.ReadFile("config_file")
 //		if os.IsNotExists(err) {
 //			// Return a new error with the original error as the cause.
-//			return nil, NotFoundError{eg.Wrap(err, "Couldn't find config file")}
+//			return nil, NotFoundError{eg.Err{CauseErr: err, Message: "Couldn't find config file"}}
 //		}
 //		if err != nil {
 //			// Return a generic error for other problems.
-//			return eg.Wrap(err, "Error reading config file")
+//			return eg.Note(err, "Error reading config file")
 //		}
 //		return data, nil
 //	}
@@ -42,9 +38,7 @@
 //	func StartFoo() error {
 //		data, err := GetConfig()
 //		if err != nil {
-//			// Only let the IsNotFound error percolate up, so we don't let
-//			// callers depend on implementation-specific errors.
-//			return eg.Pass(err, "Can't start foo", IsNotFound)
+//			return eg.Note(err, "Can't start foo")
 //		}
 //		return nil
 //	}
@@ -94,7 +88,7 @@ type Detailed interface {
 type Err struct {
 	Message     string
 	Location    location
-	Cause       error
+	CauseErr    error
 	Annotations []annotation
 }
 
@@ -112,10 +106,10 @@ func Mask(err error, msg string, args ...interface{}) error {
 func mask(err error, depth int, msg string, args ...interface{}) *Err {
 	ret := newErr(depth+1, msg, args...)
 	if err != nil {
-		if ret.message != "" {
-			ret.message = ret.message + ": " + err.Error()
+		if ret.Message != "" {
+			ret.Message = ret.Message + ": " + err.Error()
 		} else {
-			ret.message = err.Error()
+			ret.Message = err.Error()
 		}
 	}
 	return ret
@@ -131,8 +125,8 @@ func newErr(depth int, msg string, args ...interface{}) *Err {
 		msg = fmt.Sprintf(msg, args...)
 	}
 	return &Err{
-		message:  msg,
-		location: locate(depth + 1),
+		Message:  msg,
+		Location: locate(depth + 1),
 	}
 
 }
@@ -142,31 +136,31 @@ func (e *Err) Error() string {
 	msgs := []string{}
 
 	// LIFO the annotations
-	for x := len(e.annotations) - 1; x >= 0; x-- {
-		msg := e.annotations[x].String()
+	for x := len(e.Annotations) - 1; x >= 0; x-- {
+		msg := e.Annotations[x].String()
 		if msg != "" {
-			msgs = append(msgs, e.annotations[x].String())
+			msgs = append(msgs, e.Annotations[x].String())
 		}
 	}
 
-	msgs = append(msgs, e.message)
+	msgs = append(msgs, e.Message)
 
-	if e.cause != nil {
-		msgs = append(msgs, e.cause.Error())
+	if e.Cause != nil {
+		msgs = append(msgs, e.CauseErr.Error())
 	}
 	return strings.Join(msgs, ": ")
 }
 
 // Cause returns the error object that caused this error.
 func (e *Err) Cause() error {
-	return e.cause
+	return e.CauseErr
 }
 
 // Annotate adds the message to the list of annotations on the error.  If msg is
 // empty, the annotation will only be displayed when printing the error's
 // details.
 func (e *Err) Annotate(msg, function, file string, line int) {
-	e.annotations = append(e2.annotations,
+	e.Annotations = append(e.Annotations,
 		annotation{
 			Message:  msg,
 			location: location{function, file, line},
@@ -179,25 +173,16 @@ func (e *Err) Details() string {
 	msgs := []string{}
 
 	// LIFO the annotations
-	for x := len(e.annotations) - 1; x >= 0; x-- {
-		msgs = append(msgs, e.annotations[x].Details())
+	for x := len(e.Annotations) - 1; x >= 0; x-- {
+		msgs = append(msgs, e.Annotations[x].Details())
 	}
 
-	msgs = append(msgs, fmt.Sprintf("%s %s", e.location, e.message))
+	msgs = append(msgs, fmt.Sprintf("%s %s", e.Location, e.Message))
 
-	if e.cause != nil {
-		msgs = append(msgs, Details(e.cause))
+	if e.CauseErr != nil {
+		msgs = append(msgs, Details(e.CauseErr))
 	}
 	return strings.Join(msgs, "\n")
-}
-
-// Wrap wraps the given error in an Err object, in effect obscuring the original
-// error.
-func Wrap(err error, msg string, args ...interface{}) error {
-	if err == nil {
-		return nil
-	}
-	return wrap(err, 1, msg, args...)
 }
 
 func wrap(err error, depth int, msg string, args ...interface{}) *Err {
@@ -205,7 +190,7 @@ func wrap(err error, depth int, msg string, args ...interface{}) *Err {
 		msg = fmt.Sprintf(msg, args...)
 	}
 
-	return &Err{message: msg, cause: err, location: locate(depth + 1)}
+	return &Err{Message: msg, CauseErr: err, Location: locate(depth + 1)}
 }
 
 // Note annotates the error if it is already an Annotable error, otherwise it
@@ -229,20 +214,6 @@ func note(err error, depth int, msg string, args ...interface{}) error {
 	}
 
 	return wrap(err, depth+1, msg, args...)
-}
-
-// Pass will Note any errors that match the conditions in iff, and Mask any
-// errors which do not match.
-func Pass(err error, msg string, iff ...func(error) bool) error {
-	if err == nil {
-		return nil
-	}
-	for _, shouldPass := range iff {
-		if shouldPass(err) {
-			return note(err, 1, msg)
-		}
-	}
-	return mask(err, 1, msg)
 }
 
 // Cause returns the cause of the error.  If the error has a cause, ok will be
