@@ -145,7 +145,7 @@ func (e *Err) Error() string {
 
 	msgs = append(msgs, e.Message)
 
-	if e.Cause != nil {
+	if e.CauseErr != nil {
 		msgs = append(msgs, e.CauseErr.Error())
 	}
 	return strings.Join(msgs, ": ")
